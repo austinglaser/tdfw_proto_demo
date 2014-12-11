@@ -2,7 +2,7 @@
 *.o
 
 # executable
-test
+demo
 
 # generated directories
 images/
