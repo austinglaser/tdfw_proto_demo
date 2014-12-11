@@ -47,6 +47,9 @@ typedef struct {
 
 /**
  * @brief   Gets frames from the webcam
+ * @param[out]  frames_available:   Semaphore indicating how many frames are available in the queue
+ * @param[out]  frame_queue:        Queue for captured frames
+ * @param[in]   done:               Flag to kill thread when execution is done
  */
 static void get_frames(interprocess_semaphore * frames_available, queue<Mat>* frame_queue, bool * done);
 
