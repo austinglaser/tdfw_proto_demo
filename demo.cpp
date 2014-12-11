@@ -46,11 +46,6 @@ typedef struct {
 /* --- LOCAL FUNCTION PROTOTYPES ------------------------------------------ */
 
 /**
- * @brief   Gets frames from the webcam
- */
-static void get_frames(interprocess_semaphore * frames_available, queue<Mat>* frame_queue, bool * done);
-
-/**
  * @brief   Prints usage instructions and exits
  * @param[in]   call:       The string which was used to call the program
  * @param[in]   err:        Error code to return to system
@@ -87,12 +82,17 @@ int32_t main(int32_t argc, char ** argv)
     struct timeval tv;
     double start_ms, last_ms, now_ms, diff_ms, rel_ms, diff_ms_avg;
 
-    queue<Mat> frame_queue;
-    interprocess_semaphore frames_available(0);
-    bool done = false;
-
     // Parse command-line arguments. Print usage and returns if an error is found
     if (parse_args(argc, argv, &options)) usage(argv[0], -1);
+
+    // Open capture stream
+    VideoCapture cap(0);
+    if (!cap.isOpened()) return 1;
+
+    // Set capture properties
+    cap.set(CV_CAP_PROP_FRAME_WIDTH,320);
+    cap.set(CV_CAP_PROP_FRAME_HEIGHT,240);
+    system("v4l2-ctl -p10");           // Currently DOESN'T set framerate. It tries to tell us it has though
 
     // Make image directory and clean it out if we're saving this run
     if (options.save) {
@@ -105,15 +105,10 @@ int32_t main(int32_t argc, char ** argv)
     start_ms = TIME_MS(tv);
     last_ms = start_ms;
 
-    // Start capture thread
-    thread get_frames_thd(get_frames, &frames_available, &frame_queue, &done);
-
     diff_ms_avg = 0;
     for (i = 0; i < options.n_frames; i++) {
         // Grab frame
-        frames_available.wait();
-        frame = frame_queue.front();
-        frame_queue.pop();
+        cap.read(frame);
 
         // Get timing info
         gettimeofday(&tv, NULL);
@@ -137,37 +132,11 @@ int32_t main(int32_t argc, char ** argv)
         diff_ms_avg += diff_ms;
     }
 
-    // Kill thread
-    done = true;
-
     // Calculate and print average interval and overall framerate
     diff_ms_avg /= options.n_frames;
     printf("\nAverage: %05.lf\t(%05.lf FPS)\n\n", diff_ms_avg, 1000/diff_ms_avg);
 
     return 0;
-}
-
-static void get_frames(interprocess_semaphore * frames_available, queue<Mat> * frame_queue, bool * done)
-{
-    Mat frame;
-
-    // Open capture stream
-    VideoCapture cap(0);
-    if (!cap.isOpened()) return;
-
-    // Set capture properties
-    cap.set(CV_CAP_PROP_FRAME_WIDTH,320);
-    cap.set(CV_CAP_PROP_FRAME_HEIGHT,240);
-    system("v4l2-ctl -p120");           // Currently DOESN'T set framerate. It tries to tell us it has though
-
-    while (!(*done)) {
-        // Get a frame
-        cap.read(frame);
-
-        // Put it in the queue, signal main it's ready for processing
-        frame_queue->push(frame);
-        frames_available->post();
-    }
 }
 
 static void usage(char * call, int32_t err)
