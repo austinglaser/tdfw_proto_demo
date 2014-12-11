@@ -1,0 +1,8 @@
+# object files
+*.o
+
+# executable
+test
+
+# generated directories
+images/
