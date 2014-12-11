@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/time.h>
+#include <queue>
 
 // Opencv
 #include <opencv.hpp>
@@ -42,16 +43,12 @@ typedef struct {
     bool verbose;               /**< Whether to print extra info */
 } OPTIONS_t;
 
-/* --- GLOBAL VARIABLES --------------------------------------------------- */
-
-interprocess_semaphore frame_ready(0);
-
 /* --- LOCAL FUNCTION PROTOTYPES ------------------------------------------ */
 
 /**
  * @brief   Gets frames from the webcam
  */
-void get_frames(interprocess_semaphore frame_ready);
+static void get_frames(interprocess_semaphore * frames_available, queue<Mat>* frame_queue, bool * done);
 
 /**
  * @brief   Prints usage instructions and exits
@@ -82,18 +79,20 @@ static uint32_t parse_args(int32_t argc, char ** argv, OPTIONS_t * options);
 int32_t main(int32_t argc, char ** argv)
 {
     uint32_t i;
+    OPTIONS_t options;
+
     char title[128];
     Mat frame;
+
     struct timeval tv;
     double start_ms, last_ms, now_ms, diff_ms, rel_ms, diff_ms_avg;
-    OPTIONS_t options;
+
+    queue<Mat> frame_queue;
+    interprocess_semaphore frames_available(0);
+    bool done = false;
 
     // Parse command-line arguments. Print usage and returns if an error is found
     if (parse_args(argc, argv, &options)) usage(argv[0], -1);
-
-    // Open capture stream
-    VideoCapture cap(0);
-    if (!cap.isOpened()) return 1;
 
     // Make image directory and clean it out if we're saving this run
     if (options.save) {
@@ -101,20 +100,22 @@ int32_t main(int32_t argc, char ** argv)
         system("rm -rf images/*");
     }
 
-    // Set capture properties
-    cap.set(CV_CAP_PROP_FRAME_WIDTH,320);
-    cap.set(CV_CAP_PROP_FRAME_HEIGHT,240);
-    system("v4l2-ctl -p120");           // Currently DOESN'T set framerate. It tries to tell us it has though
-
     // Get start information for timing
     gettimeofday(&tv, NULL);
     start_ms = TIME_MS(tv);
     last_ms = start_ms;
 
+    // Start capture thread
+    thread get_frames_thd(get_frames, &frames_available, &frame_queue, &done);
+
     diff_ms_avg = 0;
     for (i = 0; i < options.n_frames; i++) {
-        // Capture frame, get timestamp
-        cap.read(frame);
+        // Grab frame
+        frames_available.wait();
+        frame = frame_queue.front();
+        frame_queue.pop();
+
+        // Get timing info
         gettimeofday(&tv, NULL);
         now_ms = TIME_MS(tv);
         rel_ms = now_ms - start_ms; // ms from start
@@ -136,11 +137,37 @@ int32_t main(int32_t argc, char ** argv)
         diff_ms_avg += diff_ms;
     }
 
+    // Kill thread
+    done = true;
+
     // Calculate and print average interval and overall framerate
     diff_ms_avg /= options.n_frames;
     printf("\nAverage: %05.lf\t(%05.lf FPS)\n\n", diff_ms_avg, 1000/diff_ms_avg);
 
     return 0;
+}
+
+static void get_frames(interprocess_semaphore * frames_available, queue<Mat> * frame_queue, bool * done)
+{
+    Mat frame;
+
+    // Open capture stream
+    VideoCapture cap(0);
+    if (!cap.isOpened()) return;
+
+    // Set capture properties
+    cap.set(CV_CAP_PROP_FRAME_WIDTH,320);
+    cap.set(CV_CAP_PROP_FRAME_HEIGHT,240);
+    system("v4l2-ctl -p120");           // Currently DOESN'T set framerate. It tries to tell us it has though
+
+    while (!(*done)) {
+        // Get a frame
+        cap.read(frame);
+
+        // Put it in the queue, signal main it's ready for processing
+        frame_queue->push(frame);
+        frames_available->post();
+    }
 }
 
 static void usage(char * call, int32_t err)
