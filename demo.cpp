@@ -41,6 +41,7 @@ typedef struct {
     char fmt[8];                /**< File format for images */
     bool save;                  /**< Whether or not to save capture frames to the disk */
     bool verbose;               /**< Whether to print extra info */
+    bool display;               /**< Whether or not to display the image onscreen */
 } OPTIONS_t;
 
 /* --- LOCAL FUNCTION PROTOTYPES ------------------------------------------ */
@@ -106,6 +107,8 @@ int32_t main(int32_t argc, char ** argv)
     last_ms = start_ms;
 
     diff_ms_avg = 0;
+
+    namedWindow("Image");
     for (i = 0; i < options.n_frames; i++) {
         // Grab frame
         cap.read(frame);
@@ -128,6 +131,10 @@ int32_t main(int32_t argc, char ** argv)
             if (!imwrite(title, frame)) return 2;
         }
 
+        if (options.display) {
+            imshow(title, frame);
+        }
+
         // Accumulate for average frame timing
         diff_ms_avg += diff_ms;
     }
@@ -135,6 +142,9 @@ int32_t main(int32_t argc, char ** argv)
     // Calculate and print average interval and overall framerate
     diff_ms_avg /= options.n_frames;
     printf("\nAverage: %05.lf\t(%05.lf FPS)\n\n", diff_ms_avg, 1000/diff_ms_avg);
+
+    cap.release();
+    destroyAllWindows();
 
     return 0;
 }
@@ -146,6 +156,7 @@ static void usage(char * call, int32_t err)
            "Options available:\n"
            "\t-v\t\tVerbose mode (default: off)\n"
            "\t-s\t\tSaves frames under images/ directory (default: off)\n"
+           "\t-d\t\tDisplays images on the screen (default: off)\n"
            "\t-f<fmt>\t\tSets format to the specified value (default: jpg)\n"
            "\t-h\t\tPrints this message\n", call);
 
@@ -162,6 +173,7 @@ static uint32_t parse_args(int32_t argc, char ** argv, OPTIONS_t * options)
     strcpy(options->fmt, "jpg");
     options->save       = false;
     options->verbose    = false;
+    options->display    = false;
 
     // Loops through all strings
     for (i = 1; i < argc; i++) {
@@ -181,6 +193,10 @@ static uint32_t parse_args(int32_t argc, char ** argv, OPTIONS_t * options)
 
             case 'n':       // Number of frames
                 if (sscanf(&(argv[i][2]), "%u", &(options->n_frames)) != 1) return -1;
+                break;
+
+            case 'd':
+                options->display = true;
                 break;
 
             case 'h':       // Help flag
